@@ -2,7 +2,7 @@
 import os
 import pickle
 
-DATA_DIR = "data/"
+DATA_DIR = "data/raw/"
 
 print(os.listdir(DATA_DIR))
 
