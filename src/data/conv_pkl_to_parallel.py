@@ -3,6 +3,7 @@ import os
 import pickle
 
 DATA_DIR = "data/raw/"
+DUMP_DIR = "data/processed/"
 
 print(os.listdir(DATA_DIR))
 
@@ -17,22 +18,22 @@ def load_ds(fname='atis.train.pkl'):
     return ds, dicts
 
 def write_parallel_data(dset_type, query, slots, intent, i2t, i2s, i2in):
-    with open(os.path.join(DATA_DIR, "atis.sentences.%s.csv" % (dset_type)), 'w+') as out:
+    with open(os.path.join(DUMP_DIR, "atis.sentences.%s.csv" % (dset_type)), 'w+') as out:
         for query_idx in query:
             out.write("%s\n" % (','.join(map(i2t.get, query_idx))))
-    with open(os.path.join(DATA_DIR, "atis.slots.%s.csv" % (dset_type)), 'w+') as out:
+    with open(os.path.join(DUMP_DIR, "atis.slots.%s.csv" % (dset_type)), 'w+') as out:
         for slot_ids in slots:
             out.write("%s\n" % (','.join(map(i2s.get, slot_ids))))
-    with open(os.path.join(DATA_DIR, "atis.intent.%s.csv" % (dset_type)), 'w+') as out:
+    with open(os.path.join(DUMP_DIR, "atis.intent.%s.csv" % (dset_type)), 'w+') as out:
         for intent_ids in intent:
             out.write("%s\n" % (','.join(map(i2in.get, intent_ids))))
 
 def create_parallel_dset(ds, dicts, dset_type):
     t2i, s2i, in2i = map(dicts.get, ['token_ids', 'slot_ids', 'intent_ids'])
     i2t, i2s, i2in = map(lambda d: {d[k]: k for k in d.keys()}, [t2i, s2i, in2i])
-    query, slots, intent = map(train_ds.get,
+    query, slots, intent = map(ds.get,
                                ['query', 'slot_labels', 'intent_labels'])
-    print ("Writing %s parallel data" % (dset_type))
+    print ("Writing %s parallel data to %s directory" % (dset_type, DUMP_DIR))
     write_parallel_data(dset_type, query, slots, intent, i2t, i2s, i2in)
 
 print ("Creating training parallel data")
