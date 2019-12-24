@@ -5,9 +5,9 @@ import torch.nn as nn
 from transformers import BertModel
 
 class BertFC(nn.Module):
-    def __init__(self, num_intent_classes, num_slot_classes):
+    def __init__(self, num_intent_classes, num_slot_classes, type=cfg.MODEL_TYPE):
         super(BertFC, self).__init__()
-        self.bert = BertModel.from_pretrained(cfg.MODEL_TYPE)
+        self.bert = BertModel.from_pretrained(type)
         self.bert_hidden_dim = self.bert.embeddings.word_embeddings.embedding_dim
 
         self.drop = nn.Dropout()
