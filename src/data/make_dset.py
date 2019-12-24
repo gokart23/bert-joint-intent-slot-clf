@@ -44,21 +44,27 @@ def conv_to_idxes(tokenizer, sents, max_tok_len):
     num_sents = len(sents)
     # Choosing pad-token idx to be 0 by default
     tokens = np.zeros((num_sents, max_tok_len), dtype=np.int)
-    relevant_tok_mask = np.zeros((num_sents, max_tok_len), dtype=np.int)
+    relevant_slot_mask = np.zeros((num_sents, max_tok_len), dtype=np.int)
     attn_mask = np.zeros((num_sents, max_tok_len), dtype=np.int)
     
     # Use wordpiece tokenizer, and maintain idxes of those tokens that are useful
     # In this case, that is the CLS-token, and the first subword token for every word
+    act_max_len = 0
     for idx, sent in enumerate(sents):
         sent_toks = tokenizer.tokenize(sent)
+        act_max_len = max(len(sent_toks), act_max_len)
         attn_mask[idx, :len(sent_toks)] = 1
         tokens[idx, :len(sent_toks)] = tokenizer.convert_tokens_to_ids(sent_toks)
-        relevant_tok_mask[idx, :len(sent_toks)] = [0 
+        # Ignore non-leading subwords (start with '#'), cls and sep tokens
+        # (note that in our case we deal with cls tokens separately anyway,
+        #  so this criteria doesn't have to change)
+        relevant_slot_mask[idx, :len(sent_toks)] = [0
                                                    if (tok.startswith('#')
-                                                       or tok in ('EOS')) is True
+                                                       or tok in (cls_token, sep_token)) is True
                                                    else 1
                                                    for idx, tok in enumerate(sent_toks)]
-    return tokens, relevant_tok_mask, attn_mask
+    print ("Maximum token length found was %d" % (act_max_len))
+    return tokens, relevant_slot_mask, attn_mask
 
 def to_categorical(labels, other_labels):
 
@@ -101,12 +107,12 @@ def main():
     tokenizer = BertTokenizer.from_pretrained(cfg.MODEL_TYPE,
                                               do_basic_tokenize=False,
                                               do_lower_case=True)
-    tokens, rel_tok_mask, attn_mask = conv_to_idxes(tokenizer,
+    tokens, rel_slot_mask, attn_mask = conv_to_idxes(tokenizer,
                                                     sents, cfg.MAX_TOK_LEN)
     idxes, intent_dict, slot_dict = to_categorical(slots, other_slots)
     fname = "data/interim/atis.%s.pkl" % (args.type)
     with open(fname, 'wb') as f:
-        pkl.dump({'tokens': tokens, 'relevant_tok_mask': rel_tok_mask,
+        pkl.dump({'tokens': tokens, 'relevant_slot_mask': rel_slot_mask,
                   'attn_mask': attn_mask, 'idxes': idxes,
                   'intent_dict': intent_dict, 'slot_dict': slot_dict}, f)
     print ("Written interim data to %s" % (fname))
