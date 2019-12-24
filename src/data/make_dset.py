@@ -13,9 +13,8 @@ from transformers import BertTokenizer
 
 cls_token, sep_token = '[CLS]', '[SEP]'
 
-def load_dset(dset_type='train', data_dir='data/processed/'):    
+def load_dset_sents(dset_type='train', data_dir='data/processed/'):
     max_len, sents = 0, []
-    print ("DSET TYPE IS %s" % (dset_type))
     with open("%s/atis.sentences.%s.csv" % (data_dir, dset_type), 'r') as f:
         raw = f.read().splitlines()        
         for sent in raw:
@@ -25,6 +24,10 @@ def load_dset(dset_type='train', data_dir='data/processed/'):
             # default BertTokenizer's cls_token and sep_token parameters
             splits = [cls_token] + splits[1:-1] + [sep_token]
             sents.append(' '.join(splits))    
+    return sents, max_len
+
+def load_dset_slots(dset_type='train', data_dir='data/processed/'):
+    print ("Loading slots info for %s dataset" % (dset_type))
     with open("%s/atis.slots.%s.csv" % (data_dir, dset_type), 'r') as f:
         raw = f.read().splitlines()
         slots = [x.split(',') for x in raw]
@@ -35,7 +38,7 @@ def load_dset(dset_type='train', data_dir='data/processed/'):
     # Lower-case all slot labels - text lower casing handled by Bert tokenizer
     lower_slots = list(map(lambda x: [y.lower() for y in x], slots))
     del intents
-    return sents, lower_slots, max_len
+    return lower_slots
 
 def conv_to_idxes(tokenizer, sents, max_tok_len):
     num_sents = len(sents)
@@ -57,41 +60,59 @@ def conv_to_idxes(tokenizer, sents, max_tok_len):
                                                    for idx, tok in enumerate(sent_toks)]
     return tokens, relevant_tok_mask, attn_mask
 
-def to_categorical(labels):
-    label_map = {l.lower():i for i, l in enumerate(set(itertools.chain(*labels)))}
+def to_categorical(labels, other_labels):
+
+    chained_labels = itertools.chain(labels, other_labels)
+    all_intents = list(set([x[0] for x in chained_labels]))
+    # We need the ordering to be canonical, hence the sorting
+    intent_dict = {l.lower():i for i, l in enumerate(sorted(all_intents))}
+
+    # Need to reinstantiate chained_labels, since iterated over already
+    chained_labels = itertools.chain(labels, other_labels)
+    all_slots = list(set(itertools.chain(*[x[1:] for x in chained_labels])))
+    label_dict = {l.lower():i for i, l in enumerate(sorted(all_slots))}
     idxes = list()
     for label_list in labels:
-        idxes.append([label_map[l.lower()] for l in label_list])
-    return label_map, idxes
+        intent_id = intent_dict[label_list[0].lower()]
+        slot_ids = [label_dict[l.lower()] for l in label_list[1:]]
+        idxes.append([intent_id] + slot_ids)
+    return idxes, intent_dict, label_dict
 
 def main():
-    # NOTE: Wordpiece tokenizer doesn't respect 
-    # cls_token/sep_token supplied here
     parser = argparse.ArgumentParser()
     parser.add_argument('--type', choices=['train', 'test'], default='train',
                         help='Process parallel data and generate interim')
     args = parser.parse_args()
 
     print ("Processing %s data" % (args.type))
-    sents, slots, max_sent_token_len = load_dset(dset_type=args.type)
-    # FIXME: This isn't entirely correct, 
-    # since max_tok_len is for the *wordpiece* tokenizer len
+    sents, max_sent_token_len = load_dset_sents(dset_type=args.type)
+
+    # Load all the intent/slot combinations, since we need to numericalize
+    # for the entire dataset
+    slots = load_dset_slots(dset_type=args.type)
+    other_slots = load_dset_slots(dset_type='test' if (args.type == 'train') else 'train')
+
+    # FIXME: This isn't entirely correct, since max_tok_len is for the 
+    #        *wordpiece* tokenizer len
     assert (max_sent_token_len <= cfg.MAX_TOK_LEN), ("Max naive token len "
                                                 "greater than max tok len")
+    # NOTE: Wordpiece tokenizer doesn't respect 
+    # cls_token/sep_token supplied here
     tokenizer = BertTokenizer.from_pretrained(cfg.MODEL_TYPE,
                                               do_basic_tokenize=False,
                                               do_lower_case=True)
     tokens, rel_tok_mask, attn_mask = conv_to_idxes(tokenizer,
                                                     sents, cfg.MAX_TOK_LEN)
-    slot_dict, slot_ids = to_categorical(slots)
+    idxes, intent_dict, slot_dict = to_categorical(slots, other_slots)
     fname = "data/interim/atis.%s.pkl" % (args.type)
     with open(fname, 'wb') as f:
         pkl.dump({'tokens': tokens, 'relevant_tok_mask': rel_tok_mask,
-                  'attn_mask': attn_mask, 'slot_ids': slot_ids,
-                  'slot_dict': slot_dict}, f)
+                  'attn_mask': attn_mask, 'idxes': idxes,
+                  'intent_dict': intent_dict, 'slot_dict': slot_dict}, f)
     print ("Written interim data to %s" % (fname))
     print ("Sentences: {:4d}".format(tokens.shape[0]))
-    print ("Slot size: {:4d}".format(len(slot_dict.keys())))
+    print ("Slot classes: {:4d}".format(len(slot_dict.keys())))
+    print ("Intent classes: {:4d}".format(len(intent_dict.keys())))
 
 if __name__ == "__main__":
     main()
