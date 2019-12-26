@@ -13,7 +13,7 @@ from transformers import AdamW
 PARAMS = AttrDict({
         'dev_split': 0.2,
 
-        'num_epochs': 5,
+        'num_epochs': 30,
         'batch_size': 32,
         'lr': 5e-5,
         'eps': 1e-8,
@@ -129,7 +129,9 @@ for epoch in tqdm(range(PARAMS.num_epochs), desc='Epoch'):
 
     intent_acc = 100. * intent_correct / intent_num
     slot_acc = 100. * slot_correct / slot_num
-    print ('Train loss: {:.4f}, Val loss: {:.4f},'
+    tqdm.write ('Train loss: {:.4f}, Val loss: {:.4f},'
            'Intent Accuracy: {:.2f} ({}/{}) Slot Accuracy: {:.2f} ({}/{})'
            ''.format(tr_loss, val_loss, intent_acc, intent_correct, intent_num,
                      slot_acc, slot_correct, slot_num))
+torch.save(model.state_dict(), cfg.MODEL_SAVE_FILE)
+print ("Saved model to %s" % (cfg.MODEL_SAVE_FILE))
