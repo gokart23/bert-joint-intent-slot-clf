@@ -13,15 +13,15 @@ from transformers import AdamW
 PARAMS = AttrDict({
         'dev_split': 0.2,
 
-        'num_epochs': 1,
-        'batch_size': 4,
+        'num_epochs': 5,
+        'batch_size': 32,
         'lr': 5e-5,
         'eps': 1e-8,
         'max_grad_norm': 1.0,
         'weight_decay': 0.0,
         'warmup_steps': 0,
 
-        'dev_batch_size': 4,
+        'dev_batch_size': 32,
     })
 
 def fetch_train_dset():
@@ -31,19 +31,15 @@ def fetch_train_dset():
         rel_slot_mask = torch.LongTensor(pkl_dict['relevant_slot_mask'])
         attn_mask = torch.LongTensor(pkl_dict['attn_mask'])
 
-        # TODO: Create label mask here
         dset_size = len(pkl_dict['idxes'])
         _idxes = np.zeros((dset_size, cfg.MAX_TOK_LEN), dtype=np.int)
-        _idx_mask = np.zeros((dset_size, cfg.MAX_TOK_LEN-1), dtype=np.int)
-        for idx, vals, mask in zip(_idxes, pkl_dict['idxes'], _idx_mask):
+        for idx, vals in zip(_idxes, pkl_dict['idxes']):
             idx[:len(vals)] = vals
-            mask[:len(vals)-1] = 1
         idxes = torch.LongTensor(_idxes)
-        idx_mask = torch.LongTensor(_idx_mask)
 
         num_intent_classes = len(pkl_dict['intent_dict'].keys())
         num_slot_classes = len(pkl_dict['slot_dict'].keys())
-    return (tokens, rel_slot_mask, attn_mask, idxes, idx_mask), (num_intent_classes, num_slot_classes)
+    return (tokens, rel_slot_mask, attn_mask, idxes), (num_intent_classes, num_slot_classes)
 
 # Load dataset
 print ("Loading train dataset")
@@ -76,7 +72,8 @@ optimizer_grouped_parameters = [
 optimizer = AdamW(optimizer_grouped_parameters, lr=PARAMS.lr, eps=PARAMS.eps)
 
 # Initialize loss function
-criterion = torch.nn.CrossEntropyLoss()
+intent_loss = torch.nn.CrossEntropyLoss()
+slot_loss = torch.nn.CrossEntropyLoss()
 
 # Display report, for sanity
 print ("\n\n**** Training ****")
@@ -85,21 +82,54 @@ print ("Num epochs: %d" % (PARAMS.num_epochs))
 
 for epoch in tqdm(range(PARAMS.num_epochs), desc='Epoch'):
     tr_loss, val_loss = 0., 0.
-
     model.train()
-    for idx, batch in enumerate(tqdm(train_loader, leave=False, desc='Train')):
-            batch = (t.to(device) for t in batch)
+    for idx, batch in enumerate(tqdm(train_loader, leave=False)):
+        batch = (t.to(cfg.device) for t in batch)
+        tokens, rel_slot_mask, attn_mask, labels = batch
 
-            # TODO: Complete training loop
-            # tokens, rel_slot_mask, attn_mask, inp_labels, inp_labels_mask = batch
-            # # Get back words labels
-            # labels = torch.LongTensor().to(device)
-            # for inp_l, inp_l_m in zip(inp_labels, inp_labels_mask):
-            #     labels = torch.cat([labels, inp_l[:inp_l_m]], dim=0)
-            # logits = model(inp_ids, inp_idx, inp_mask)
-            # loss = criterion(logits, labels)
-            # tr_loss += loss.item()
-            # 
-            # optimizer.zero_grad()
-            # loss.backward()
-            # optimizer.step()
+        bsz = tokens.size(0)
+        intent_labels = labels[:, 0].view(-1)
+        slot_labels = labels.view(-1)[rel_slot_mask.view(-1) == 1]
+        assert (intent_labels.size(0) == bsz), "Intent labels don't match"
+        assert (slot_labels.size(0) == rel_slot_mask.sum()), "Slot labels don't match"
+
+        intent_logits, slot_logits = model(tokens, rel_slot_mask, attn_mask)
+        i_loss = intent_loss(intent_logits, intent_labels)
+        s_loss = slot_loss(slot_logits, slot_labels)
+        loss = i_loss + s_loss
+
+        tr_loss += loss.item()
+
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
+
+    model.eval()
+    intent_correct, intent_num, slot_correct, slot_num = 0, 0, 0, 0
+    for idx, batch in enumerate(tqdm(val_loader, leave=False, desc='Eval')):
+        batch = (t.to(cfg.device) for t in batch)
+        tokens, rel_slot_mask, attn_mask, labels = batch
+
+        bsz = tokens.size(0)
+        intent_labels = labels[:, 0].view(-1)
+        slot_labels = labels.view(-1)[rel_slot_mask.view(-1) == 1]
+        intent_logits, slot_logits = model(tokens, rel_slot_mask, attn_mask)
+
+        i_loss = intent_loss(intent_logits, intent_labels)
+        s_loss = slot_loss(slot_logits, slot_labels)
+        loss = i_loss + s_loss
+        val_loss += loss.item()
+
+        intent_preds = torch.argmax(intent_logits, dim=1)
+        slot_preds = torch.argmax(slot_logits, dim=1)
+        intent_correct += (intent_preds == intent_labels).sum().item()
+        intent_num += intent_preds.shape[0]
+        slot_correct += (slot_preds == slot_labels).sum().item()
+        slot_num += slot_preds.shape[0]
+
+    intent_acc = 100. * intent_correct / intent_num
+    slot_acc = 100. * slot_correct / slot_num
+    print ('Train loss: {:.4f}, Val loss: {:.4f},'
+           'Intent Accuracy: {:.2f} ({}/{}) Slot Accuracy: {:.2f} ({}/{})'
+           ''.format(tr_loss, val_loss, intent_acc, intent_correct, intent_num,
+                     slot_acc, slot_correct, slot_num))

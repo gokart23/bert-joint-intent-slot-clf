@@ -16,8 +16,7 @@ class BertFC(nn.Module):
 
     def forward(self, inp, relevant_slot_mask, attn_mask):
         # bsz x max_tok_len -> bsz x max_tok_len x bert_hidden_dim
-        encoded_states, _ = self.bert(inp, attention_mask=attn_mask,
-                                      output_all_encoded_layers=False)
+        encoded_states, _ = self.bert(inp, attention_mask=attn_mask)
         joint_enc = self.drop(encoded_states)
 
         # intents: bsz x max_tok_len x bert_hidden_dim -> bsz x bert_hidden_dim
