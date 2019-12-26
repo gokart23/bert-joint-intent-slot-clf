@@ -9,6 +9,9 @@ clean:
 train: data/interim/atis.train.pkl
 	python3 -m src.train
 
+test: data/interim/atis.test.pkl
+	python3 -m src.test
+
 data/interim/atis.%.pkl: data/processed/atis.sentences.%.csv
 	python3 -m src.data.make_dset --type $(notdir $*)
 
