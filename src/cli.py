@@ -6,11 +6,12 @@ from src.models.bert_fc import BertFC
 
 import torch
 import pickle as pkl
-import os, argparse
+import sys, os, argparse
+from collections import defaultdict
 from transformers import BertTokenizer
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--model', type=str, required=True)
+parser.add_argument('--model', type=str, default=cfg.MODEL_SAVE_FILE)
 parser.add_argument('--test-dset', type=str, 
                     default='data/interim/atis.test.pkl')
 
@@ -40,12 +41,25 @@ tokenizer = BertTokenizer.from_pretrained(cfg.MODEL_TYPE,
                                           do_lower_case=True)
 # REPL loop
 while True:
-    print ("> ")
+    # Read
+    sys.stdout.write("\n> ")
     orig_sentence = input()
     sentence = dset.cls_token + ' ' + orig_sentence + ' ' + dset.sep_token
+
+    # Eval (inference)
     inp = dset.conv_to_idxes(tokenizer, [sentence], cfg.MAX_TOK_LEN)
     tokens, rel_slot_mask, attn_mask = (torch.LongTensor(t).to(cfg.device) for t in inp)
     logits = model(tokens, rel_slot_mask, attn_mask)
     intent_preds, slot_preds = (torch.argmax(t, dim=1).tolist() for t in logits)
+
+    # Pretty print
     print ("Intent: ", rev_intent[intent_preds[0]])
-    print ("Slots: ", ' '.join(["%s(%s)" % (w, rev_slot[x].upper()) for w, x in zip(orig_sentence.split(), slot_preds)]))
+    print ("Slots: ", ' '.join(["%s(%s)" % (w, rev_slot[x].upper())
+            for w, x in zip(orig_sentence.split(), slot_preds)]))
+    pred_dict = defaultdict(lambda: "")
+    for w, x in zip(orig_sentence.split(), slot_preds):
+        slot_class = rev_slot[x].upper().split('-')
+        if len(slot_class) > 1: # not an O class
+            pred_dict[slot_class[1]] += ' ' + w
+    print ("--------------")
+    print ("\n".join(["%s: %s" % (k, v) for k,v in pred_dict.items()]))

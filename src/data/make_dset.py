@@ -63,7 +63,6 @@ def conv_to_idxes(tokenizer, sents, max_tok_len):
                                                        or tok in (cls_token, sep_token)) is True
                                                    else 1
                                                    for idx, tok in enumerate(sent_toks)]
-    print ("Maximum token length found was %d" % (act_max_len))
     return tokens, relevant_slot_mask, attn_mask
 
 def to_categorical(labels, other_labels):
